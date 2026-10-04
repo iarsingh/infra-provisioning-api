@@ -1,25 +1,33 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+from provision.render import REGIONS, SIZE_CAP, SIZES, RenderError, render
+
 app = FastAPI(title="Provisioning API")
 
 
 class StackRequest(BaseModel):
     name: str
     environment: str
+    region: str = "us-central1"
+    size: str = "small"
+    team: str = ""
+    cost_center: str = ""
+
+
+@app.get("/healthz")
+def healthz():
+    return {"status": "ok"}
+
+
+@app.get("/options")
+def options():
+    return {"regions": list(REGIONS), "sizes": SIZES, "size_cap": SIZE_CAP}
 
 
 @app.post("/stacks")
 def create_stack(body: StackRequest):
-    if body.environment in {"prod", "production"}:
-        raise HTTPException(status_code=422, detail="prod is not rendered; change the GitOps repository")
-    if body.environment not in {"dev", "staging"}:
-        raise HTTPException(status_code=422, detail="environment must be dev or staging")
-    main = (
-        'module "service" {\n'
-        '  source      = "../../modules/service"\n'
-        f'  name        = "{body.name}"\n'
-        f'  environment = "{body.environment}"\n'
-        "}\n"
-    )
-    return {"applied": False, "files": {"main.tf": main}}
+    try:
+        return render(body.model_dump())
+    except RenderError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
