@@ -13,12 +13,13 @@ I would demonstrate the linked implementation or examples and distinguish that e
 ## 2. How is this repository organized?
 
 - [`src/provision/main.py`](src/provision/main.py): Implementation or supporting configuration.
+- [`src/provision/ops.py`](src/provision/ops.py): Implementation or supporting configuration.
 - [`src/provision/render.py`](src/provision/render.py): Implementation or supporting configuration.
 - [`requirements.txt`](requirements.txt): Implementation or supporting configuration.
 - [`terraform/modules/service/main.tf`](terraform/modules/service/main.tf): Terraform resource/module declarations.
-- [`tests/test_provision.py`](tests/test_provision.py): Executable checks and regression examples.
-- [`.github/workflows/ci.yml`](.github/workflows/ci.yml): GitHub Actions job definitions.
-- [`README.md`](README.md): Project explanations or operating notes.
+- [`Dockerfile`](Dockerfile): Container build/service configuration.
+- [`Makefile`](Makefile): Implementation or supporting configuration.
+- [`docker-compose.yml`](docker-compose.yml): Container build/service configuration.
 
 [PROJECT_ARCHITECTURE.md](PROJECT_ARCHITECTURE.md) contains the component diagram and the implementation walkthrough.
 
@@ -63,42 +64,45 @@ It uses `', '.join`, `LABEL.fullmatch`, `NAME.fullmatch`, `ORDER.index`, `Render
 
 Explicit failure paths include:
 
-- `HTTPException(status_code=422, detail=str(exc))` in [`src/provision/main.py`](src/provision/main.py#L33).
+- `HTTPException(status_code=422, detail=str(exc))` in [`src/provision/main.py`](src/provision/main.py#L35).
+- `HTTPException(status_code=404, detail='workspace not found')` in [`src/provision/ops.py`](src/provision/ops.py#L77).
+- `HTTPException(status_code=404, detail='job not found')` in [`src/provision/ops.py`](src/provision/ops.py#L100).
+- `HTTPException(status_code=404, detail='job not found')` in [`src/provision/ops.py`](src/provision/ops.py#L109).
+- `HTTPException(status_code=403, detail='production apply is disabled in this lab')` in [`src/provision/ops.py`](src/provision/ops.py#L113).
 - `RenderError('prod is not rendered; change the GitOps repository')` in [`src/provision/render.py`](src/provision/render.py#L22).
 - `RenderError('environment must be dev or staging')` in [`src/provision/render.py`](src/provision/render.py#L24).
-- `RenderError('name must be 3 to 30 lowercase letters, digits, or dashes, starting with a letter')` in [`src/provision/render.py`](src/provision/render.py#L26).
-- `RenderError(f"region must be one of {', '.join(REGIONS)}")` in [`src/provision/render.py`](src/provision/render.py#L28).
-- `RenderError('size must be small, medium, or large')` in [`src/provision/render.py`](src/provision/render.py#L30).
-- `RenderError(f"{request['environment']} is capped at {cap}")` in [`src/provision/render.py`](src/provision/render.py#L33).
 
 I would test both the condition that reaches each exception and the caller that translates it. An explicit raise does not mean every malformed input or dependency failure is handled.
 
 ## 6. Which test would you use to demonstrate correctness?
 
-[`tests/test_provision.py`](tests/test_provision.py#L14) contains `test_render_is_not_an_apply`:
+[`tests/test_ops.py`](tests/test_ops.py#L8) contains `test_readyz`:
 
 ```python
-def test_render_is_not_an_apply():
-    body = stack().json()
-    assert body["applied"] is False
-    assert 'name         = "billing"' in body["files"]["terraform.tfvars"]
-    assert "var.name" in body["files"]["main.tf"]
-    assert stack(environment="prod").status_code == 422
+def test_readyz():
+    r = client.get("/v1/readyz")
+    assert r.status_code == 200
+    assert r.json()["status"] == "ready"
 ```
 
 This is a concrete regression example from the repository. Its assertions establish that case; they do not establish behavior for every input or under production load.
 
 ## 7. What HTTP interface does the code expose?
 
-- `GET /healthz` → `healthz` in [`src/provision/main.py`](src/provision/main.py#L19).
-- `GET /options` → `options` in [`src/provision/main.py`](src/provision/main.py#L24).
-- `POST /stacks` → `create_stack` in [`src/provision/main.py`](src/provision/main.py#L29).
+- `GET /healthz` → `healthz` in [`src/provision/main.py`](src/provision/main.py#L21).
+- `GET /options` → `options` in [`src/provision/main.py`](src/provision/main.py#L26).
+- `POST /stacks` → `create_stack` in [`src/provision/main.py`](src/provision/main.py#L31).
+- `GET /readyz` → `readyz` in [`src/provision/ops.py`](src/provision/ops.py#L44).
+- `POST /workspaces` → `create_workspace` in [`src/provision/ops.py`](src/provision/ops.py#L49).
+- `GET /workspaces` → `list_workspaces` in [`src/provision/ops.py`](src/provision/ops.py#L66).
+- `POST /workspaces/{workspace_id}/jobs` → `create_job` in [`src/provision/ops.py`](src/provision/ops.py#L73).
+- `GET /jobs/{job_id}` → `get_job` in [`src/provision/ops.py`](src/provision/ops.py#L96).
 
 These are literal decorators. Application/router prefixes, authentication, and middleware must be checked in the corresponding setup code.
 
 ## 8. Where does state live, and what happens with multiple workers?
 
-Module-level containers include `SIZES`, `SIZE_CAP` in [`src/provision/render.py`](src/provision/render.py).
+Module-level containers include `_WORKSPACES`, `_JOBS`, `_AUDIT`, `_METRICS` in [`src/provision/ops.py`](src/provision/ops.py); `SIZES`, `SIZE_CAP` in [`src/provision/render.py`](src/provision/render.py).
 
 These containers belong to a Python process. Inspect which are constant fixtures and which are mutated. Mutable process state needs an explicit shared-storage or synchronization strategy before multiple workers can provide consistent behavior.
 
@@ -135,3 +139,9 @@ In [`src/provision/render.py`](src/provision/render.py#L39), `render(request)` r
 Its result is defined by:
 
 - `{'applied': False, 'estimate': {'machine_type': size['machine_type'], 'monthly_usd': size['monthly_usd']}, 'files': {'main.tf': main, 'variables.tf': variables, 'terraform.tfvars': tfvars}, 'next_step': 'Open a pull request with these files. A reviewed pipeline runs terraform plan and apply.'}`
+
+## 13. What does the operations plane add, and where is its limit?
+
+[`src/provision/ops.py`](src/provision/ops.py) declares `GET /readyz`, `POST /workspaces`, `GET /workspaces`, `POST /workspaces/{workspace_id}/jobs`, `GET /jobs/{job_id}`, `POST /jobs/{job_id}/approve`, `GET /audit`, `GET /metrics`. Inspect the application’s `include_router` call for its URL prefix.
+
+Its state containers are `_WORKSPACES`, `_JOBS`, `_AUDIT`, `_METRICS`. The job-approval handler defines whether a target is accepted or refused; check that branch and the associated tests instead of treating a recorded job as a successful infrastructure apply.

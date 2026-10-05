@@ -13,8 +13,10 @@ This document describes files and symbols in this checkout. Deployment templates
 ```mermaid
 flowchart LR
     M0["src/provision/main.py"]
-    M1["src/provision/render.py"]
+    M1["src/provision/ops.py"]
+    M2["src/provision/render.py"]
     M0 -->|imports| M1
+    M0 -->|imports| M2
 ```
 
 For Python repositories, arrows show resolved local imports, not network calls or deployment order. Otherwise the diagram is a repository component map; containment arrows do not assert runtime integration.
@@ -24,20 +26,40 @@ For Python repositories, arrows show resolved local imports, not network calls o
 | Component | Responsibility |
 | --- | --- |
 | [`src/provision/main.py`](src/provision/main.py) | HTTP handlers: `GET /healthz`, `GET /options`, `POST /stacks` |
+| [`src/provision/ops.py`](src/provision/ops.py) | HTTP handlers: `GET /readyz`, `POST /workspaces`, `GET /workspaces`, `POST /workspaces/{workspace_id}/jobs`, `GET /jobs/{job_id}` |
 | [`src/provision/render.py`](src/provision/render.py) | Functions: `validate`, `render` |
 | [`requirements.txt`](requirements.txt) | Implementation or supporting configuration |
 | [`terraform/modules/service/main.tf`](terraform/modules/service/main.tf) | Terraform resource/module declarations |
+| [`Dockerfile`](Dockerfile) | Container build/service configuration |
+| [`Makefile`](Makefile) | Implementation or supporting configuration |
+| [`docker-compose.yml`](docker-compose.yml) | Container build/service configuration |
+| [`tests/test_ops.py`](tests/test_ops.py) | Executable checks and regression examples |
 | [`tests/test_provision.py`](tests/test_provision.py) | Executable checks and regression examples |
 | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | GitHub Actions job definitions |
 | [`README.md`](README.md) | Project explanations or operating notes |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Project explanations or operating notes |
+
+## Existing design and operating guides
+
+These checked-in guides provide the project’s detailed design, operational context, or deployment view:
+
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Request interface
 
 | Method and path | Handler | Source |
 | --- | --- | --- |
-| `GET /healthz` | `healthz` | [`src/provision/main.py`](src/provision/main.py#L19) |
-| `GET /options` | `options` | [`src/provision/main.py`](src/provision/main.py#L24) |
-| `POST /stacks` | `create_stack` | [`src/provision/main.py`](src/provision/main.py#L29) |
+| `GET /healthz` | `healthz` | [`src/provision/main.py`](src/provision/main.py#L21) |
+| `GET /options` | `options` | [`src/provision/main.py`](src/provision/main.py#L26) |
+| `POST /stacks` | `create_stack` | [`src/provision/main.py`](src/provision/main.py#L31) |
+| `GET /readyz` | `readyz` | [`src/provision/ops.py`](src/provision/ops.py#L44) |
+| `POST /workspaces` | `create_workspace` | [`src/provision/ops.py`](src/provision/ops.py#L49) |
+| `GET /workspaces` | `list_workspaces` | [`src/provision/ops.py`](src/provision/ops.py#L66) |
+| `POST /workspaces/{workspace_id}/jobs` | `create_job` | [`src/provision/ops.py`](src/provision/ops.py#L73) |
+| `GET /jobs/{job_id}` | `get_job` | [`src/provision/ops.py`](src/provision/ops.py#L96) |
+| `POST /jobs/{job_id}/approve` | `approve_job` | [`src/provision/ops.py`](src/provision/ops.py#L105) |
+| `GET /audit` | `audit` | [`src/provision/ops.py`](src/provision/ops.py#L122) |
+| `GET /metrics` | `metrics` | [`src/provision/ops.py`](src/provision/ops.py#L138) |
 
 The table lists literal route decorators found in the inspected Python modules. Router prefixes and middleware can add behavior; check the linked handler and application setup before calling an endpoint.
 
@@ -106,7 +128,11 @@ def validate(request):
 
 | Explicit exception | Source |
 | --- | --- |
-| `HTTPException(status_code=422, detail=str(exc))` | [`src/provision/main.py`](src/provision/main.py#L33) |
+| `HTTPException(status_code=422, detail=str(exc))` | [`src/provision/main.py`](src/provision/main.py#L35) |
+| `HTTPException(status_code=404, detail='workspace not found')` | [`src/provision/ops.py`](src/provision/ops.py#L77) |
+| `HTTPException(status_code=404, detail='job not found')` | [`src/provision/ops.py`](src/provision/ops.py#L100) |
+| `HTTPException(status_code=404, detail='job not found')` | [`src/provision/ops.py`](src/provision/ops.py#L109) |
+| `HTTPException(status_code=403, detail='production apply is disabled in this lab')` | [`src/provision/ops.py`](src/provision/ops.py#L113) |
 | `RenderError('prod is not rendered; change the GitOps repository')` | [`src/provision/render.py`](src/provision/render.py#L22) |
 | `RenderError('environment must be dev or staging')` | [`src/provision/render.py`](src/provision/render.py#L24) |
 | `RenderError('name must be 3 to 30 lowercase letters, digits, or dashes, starting with a letter')` | [`src/provision/render.py`](src/provision/render.py#L26) |
@@ -119,6 +145,7 @@ These are explicit exceptions in the inspected source, rather than a claim that 
 
 ## Data and state
 
+- [`src/provision/ops.py`](src/provision/ops.py) defines module-level containers: `_WORKSPACES`, `_JOBS`, `_AUDIT`, `_METRICS`.
 - [`src/provision/render.py`](src/provision/render.py) defines module-level containers: `SIZES`, `SIZE_CAP`.
 
 Module-level dictionaries/lists live in a Python process. They can be fixtures or mutable state; inspect writes before treating them as persistent storage. A production extension would need to define persistence and concurrency behavior explicitly.
@@ -138,6 +165,12 @@ Its result is defined by:
 
 - `{'applied': False, 'estimate': {'machine_type': size['machine_type'], 'monthly_usd': size['monthly_usd']}, 'files': {'main.tf': main, 'variables.tf': variables, 'terraform.tfvars': tfvars}, 'next_step': 'Open a pull request with these files. A reviewed pipeline runs terraform plan and apply.'}`
 
+### What does the operations plane add, and where is its limit
+
+[`src/provision/ops.py`](src/provision/ops.py) declares `GET /readyz`, `POST /workspaces`, `GET /workspaces`, `POST /workspaces/{workspace_id}/jobs`, `GET /jobs/{job_id}`, `POST /jobs/{job_id}/approve`, `GET /audit`, `GET /metrics`. Inspect the application’s `include_router` call for its URL prefix.
+
+Its state containers are `_WORKSPACES`, `_JOBS`, `_AUDIT`, `_METRICS`. The job-approval handler defines whether a target is accepted or refused; check that branch and the associated tests instead of treating a recorded job as a successful infrastructure apply.
+
 ## Setup and verification
 
 The following commands are derived from the checked-in dependency/test contracts. Execute them from the repository root; the block prepares a local environment, not a cloud deployment.
@@ -151,7 +184,7 @@ python -m pytest -q
 
 Python dependencies: [`requirements.txt`](requirements.txt).
 
-Test entry points: [`tests/test_provision.py`](tests/test_provision.py).
+Test entry points: [`tests/test_ops.py`](tests/test_ops.py), [`tests/test_provision.py`](tests/test_provision.py).
 
 Automation definitions: [`.github/workflows/ci.yml`](.github/workflows/ci.yml). Read their triggers and job steps to determine what CI actually runs.
 
