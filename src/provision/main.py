@@ -1,9 +1,11 @@
+from provision.ops import router as ops_router
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from provision.render import REGIONS, SIZE_CAP, SIZES, RenderError, render
 
 app = FastAPI(title="Provisioning API")
+app.include_router(ops_router, prefix="/v1")
 
 
 class StackRequest(BaseModel):

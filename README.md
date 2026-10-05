@@ -77,3 +77,7 @@ curl -s -X POST localhost:8000/stacks -H 'content-type: application/json' -d '{
 - A missing `team` or `cost_center` label.
 
 The module repeats the same rules in its own `validation` blocks, so a hand-edited `tfvars` file fails `terraform validate` or `plan` for the same reasons the API refuses it.
+
+## Ops plane
+
+Workspaces, tenant isolation, job approval, and audit live under `/v1`. Production apply is refused. See `docs/ARCHITECTURE.md`.

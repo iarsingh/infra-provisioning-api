@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: infra-provisioning-api
+  labels:
+    app: infra-provisioning-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: infra-provisioning-api
+  template:
+    metadata:
+      labels:
+        app: infra-provisioning-api
+    spec:
+      containers:
+        - name: api
+          image: infra-provisioning-api:local
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /v1/readyz
+              port: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: infra-provisioning-api
+spec:
+  selector:
+    app: infra-provisioning-api
+  ports:
+    - port: 80
+      targetPort: 8080
