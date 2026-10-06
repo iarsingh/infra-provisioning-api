@@ -52,14 +52,14 @@ These checked-in guides provide the project’s detailed design, operational con
 | `GET /healthz` | `healthz` | [`src/provision/main.py`](src/provision/main.py#L21) |
 | `GET /options` | `options` | [`src/provision/main.py`](src/provision/main.py#L26) |
 | `POST /stacks` | `create_stack` | [`src/provision/main.py`](src/provision/main.py#L31) |
-| `GET /readyz` | `readyz` | [`src/provision/ops.py`](src/provision/ops.py#L44) |
-| `POST /workspaces` | `create_workspace` | [`src/provision/ops.py`](src/provision/ops.py#L49) |
-| `GET /workspaces` | `list_workspaces` | [`src/provision/ops.py`](src/provision/ops.py#L66) |
-| `POST /workspaces/{workspace_id}/jobs` | `create_job` | [`src/provision/ops.py`](src/provision/ops.py#L73) |
-| `GET /jobs/{job_id}` | `get_job` | [`src/provision/ops.py`](src/provision/ops.py#L96) |
-| `POST /jobs/{job_id}/approve` | `approve_job` | [`src/provision/ops.py`](src/provision/ops.py#L105) |
-| `GET /audit` | `audit` | [`src/provision/ops.py`](src/provision/ops.py#L122) |
-| `GET /metrics` | `metrics` | [`src/provision/ops.py`](src/provision/ops.py#L138) |
+| `GET /readyz` | `readyz` | [`src/provision/ops.py`](src/provision/ops.py#L74) |
+| `POST /workspaces` | `create_workspace` | [`src/provision/ops.py`](src/provision/ops.py#L80) |
+| `GET /workspaces` | `list_workspaces` | [`src/provision/ops.py`](src/provision/ops.py#L98) |
+| `POST /workspaces/{workspace_id}/jobs` | `create_job` | [`src/provision/ops.py`](src/provision/ops.py#L106) |
+| `GET /jobs/{job_id}` | `get_job` | [`src/provision/ops.py`](src/provision/ops.py#L130) |
+| `POST /jobs/{job_id}/approve` | `approve_job` | [`src/provision/ops.py`](src/provision/ops.py#L140) |
+| `GET /audit` | `audit` | [`src/provision/ops.py`](src/provision/ops.py#L160) |
+| `GET /metrics` | `metrics` | [`src/provision/ops.py`](src/provision/ops.py#L176) |
 
 The table lists literal route decorators found in the inspected Python modules. Router prefixes and middleware can add behavior; check the linked handler and application setup before calling an endpoint.
 
